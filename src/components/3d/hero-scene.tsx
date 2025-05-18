@@ -6,7 +6,7 @@ import { OrbitControls, Float, Environment, ContactShadows, useGLTF } from '@rea
 import { motion } from 'framer-motion'
 import * as THREE from 'three'
 import { PlaceholderModel } from './placeholder-model'
-import { LaptopModel } from './laptop-model'
+import { CreativeWireframeModel } from './creative-wireframe-model'
 import { Model3D } from '@/data/models'
 
 // Interface for model settings
@@ -202,15 +202,16 @@ export function HeroScene() {
         camera={{ position: [0, 0, 10], fov: 40 }}
         className="w-full h-full"
       >
-        <ambientLight intensity={0.7} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1.5} castShadow />
+        <ambientLight intensity={0.6} />
+        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={1.2} castShadow />
         <pointLight position={[-10, -10, -10]} intensity={0.5} />
-        <directionalLight position={[0, 5, 5]} intensity={0.5} castShadow />
+        <directionalLight position={[0, 5, 5]} intensity={0.6} castShadow />
+        <pointLight position={[5, 0, 5]} intensity={0.3} color="#6C63FF" />
         
         <Float
-          speed={1.5}
-          rotationIntensity={0.2}
-          floatIntensity={0.5}
+          speed={1.2}
+          rotationIntensity={0.1}
+          floatIntensity={0.3}
         >
           <Suspense fallback={<mesh>
             <octahedronGeometry args={[2, 0]} />
@@ -232,15 +233,15 @@ export function HeroScene() {
                 </Suspense>
               </ErrorBoundary>
             ) : (
-              <LaptopModel scale={1.5} wireframe={true} color="#6C63FF" rotation={[0, Math.PI * 0.25, 0]} />
+              <CreativeWireframeModel scale={1.5} color="#6C63FF" rotation={[0, Math.PI * 0.25, 0]} />
             )}
           </Suspense>
         </Float>
         
         <ContactShadows 
           position={[0, -3, 0]} 
-          opacity={0.4} 
-          scale={10} 
+          opacity={0.3} 
+          scale={12} 
           blur={2.5} 
           far={4} 
         />
