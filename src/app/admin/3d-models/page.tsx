@@ -1,0 +1,706 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
+import Image from 'next/image'
+import { Model3D, defaultModels } from '@/data/models'
+import ModelSettingsManager from './model-settings'
+
+export default function ModelManager() {
+  const { status } = useSession()
+  const router = useRouter()
+  
+  const [models, setModels] = useState<Model3D[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [editingModel, setEditingModel] = useState<Model3D | null>(null)
+  const [activeModelId, setActiveModelId] = useState<string>('')  
+  const [notification, setNotification] = useState<{type: 'success' | 'error' | 'info', message: string} | null>(null)
+  
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/admin/login')
+      return
+    }
+    
+    // Load models from localStorage or use defaults
+    const loadModels = () => {
+      try {
+        const storedModels = localStorage.getItem('3dModels')
+        const loadedModels = storedModels ? JSON.parse(storedModels) : defaultModels
+        setModels(loadedModels)
+        
+        // Set the active model
+        const activeModel = loadedModels.find((model: Model3D) => model.isActive)
+        if (activeModel) {
+          setActiveModelId(activeModel.id)
+        }
+      } catch (error) {
+        console.error('Error loading 3D models:', error)
+        setModels(defaultModels)
+      }
+      
+      setIsLoading(false)
+    }
+    
+    loadModels()
+  }, [status, router])
+  
+  const handleAddModel = () => {
+    const newModel: Model3D = {
+      id: `model-${Date.now()}`,
+      name: '',
+      description: '',
+      modelUrl: '',
+      isActive: false,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1]
+    }
+    
+    setEditingModel(newModel)
+  }
+  
+  const handleEditModel = (model: Model3D) => {
+    setEditingModel({ ...model })
+  }
+  
+  const handleSaveModel = () => {
+    if (!editingModel) return
+    
+    if (!editingModel.name || !editingModel.modelUrl) {
+      setError('Name and Model URL are required')
+      return
+    }
+    
+    // Check if this is a new model or an edit
+    const isNewModel = !models.some(model => model.id === editingModel.id)
+    
+    const updatedModels = isNewModel
+      ? [...models, editingModel]
+      : models.map(model => model.id === editingModel.id ? editingModel : model)
+    
+    // Save to state
+    setModels(updatedModels)
+    
+    // Save to localStorage
+    localStorage.setItem('3dModels', JSON.stringify(updatedModels))
+    
+    // Trigger storage event for other components to update
+    window.dispatchEvent(new Event('storage'))
+    
+    setEditingModel(null)
+    setError('')
+  }
+  
+  const handleCancelEdit = () => {
+    setEditingModel(null)
+    setError('')
+  }
+  
+  const handleDeleteModel = (id: string) => {
+    if (confirm('Are you sure you want to delete this model?')) {
+      let updatedModels = models.filter(model => model.id !== id)
+      
+      // If we're deleting the active model, set the first model as active
+      if (id === activeModelId && models.length > 1) {
+        const newActiveId = updatedModels[0].id
+        setActiveModelId(newActiveId)
+        
+        // Update active status
+        updatedModels = updatedModels.map(model => ({
+          ...model,
+          isActive: model.id === newActiveId
+        }))
+      }
+      
+      // Save to state
+      setModels(updatedModels)
+      
+      // Save to localStorage
+      localStorage.setItem('3dModels', JSON.stringify(updatedModels))
+      
+      // Trigger storage event for other components to update
+      window.dispatchEvent(new Event('storage'))
+    }
+  }
+  
+  const handleSetActive = (id: string) => {
+    // Update active model ID
+    setActiveModelId(id)
+    
+    // Update models to reflect the active state
+    const updatedModels = models.map(model => ({
+      ...model,
+      isActive: model.id === id
+    }))
+    
+    // Save to state
+    setModels(updatedModels)
+    
+    // Save to localStorage
+    localStorage.setItem('3dModels', JSON.stringify(updatedModels))
+    
+    // Trigger storage event for other components to update
+    window.dispatchEvent(new Event('storage'))
+    
+    // Add a small delay to ensure the storage event is processed
+    setTimeout(() => {
+      // Force a refresh of the localStorage to ensure the change is applied
+      const storedModels = localStorage.getItem('3dModels')
+      if (storedModels) {
+        const parsedModels = JSON.parse(storedModels)
+        // Verify that the active model is correctly set
+        const activeModel = parsedModels.find((model: Model3D) => model.isActive)
+        if (!activeModel || activeModel.id !== id) {
+          // If not, force update again
+          const correctedModels = parsedModels.map((model: Model3D) => ({
+            ...model,
+            isActive: model.id === id
+          }))
+          localStorage.setItem('3dModels', JSON.stringify(correctedModels))
+          window.dispatchEvent(new Event('storage'))
+        }
+      }
+    }, 100)
+  }
+  
+  const handlePositionChange = (
+    axis: 'x' | 'y' | 'z', 
+    value: string, 
+    property: 'position' | 'rotation' | 'scale'
+  ) => {
+    if (!editingModel) return
+    
+    const numValue = parseFloat(value)
+    if (isNaN(numValue)) return
+    
+    const axisIndex = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
+    
+    setEditingModel(prev => {
+      if (!prev) return prev
+      
+      const newValues = [...prev[property]] as [number, number, number]
+      newValues[axisIndex] = numValue
+      
+      return {
+        ...prev,
+        [property]: newValues
+      }
+    })
+  }
+  
+  // Function to reset to default model
+  const handleResetToDefault = () => {
+    if (confirm('Are you sure you want to reset to the default 3D model? This will deactivate all custom models.')) {
+      try {
+        // Set all models to inactive
+        const updatedModels = models.map(model => ({
+          ...model,
+          isActive: false
+        }))
+        
+        // Save to state
+        setModels(updatedModels)
+        setActiveModelId('')
+        
+        // Save to localStorage
+        localStorage.setItem('3dModels', JSON.stringify(updatedModels))
+        
+        // Reset model settings to default
+        const defaultSettings = {
+          sizeMultiplier: 1.0
+        }
+        localStorage.setItem('modelSettings', JSON.stringify(defaultSettings))
+        
+        // Trigger storage event for other components to update
+        window.dispatchEvent(new Event('storage'))
+        
+        // Show success notification
+        setNotification({
+          type: 'success',
+          message: 'Successfully reset to default 3D model'
+        })
+        
+        // Clear notification after 3 seconds
+        setTimeout(() => {
+          setNotification(null)
+        }, 3000)
+      } catch (error) {
+        console.error('Error resetting to default model:', error)
+        setNotification({
+          type: 'error',
+          message: 'Failed to reset to default model'
+        })
+      }
+    }
+  }
+  
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-[60vh]">
+        <div className="w-12 h-12 border-4 border-secondary rounded-full border-t-transparent animate-spin"></div>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="container mx-auto px-4 py-8">
+      {notification && (
+        <div className={`mb-4 p-4 rounded-lg ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800' :
+          notification.type === 'error' ? 'bg-red-100 text-red-800' :
+          'bg-blue-100 text-blue-800'
+        }`}>
+          {notification.message}
+        </div>
+      )}
+    
+    <div className="flex items-center justify-between mb-8">
+      <h1 className="heading-lg">3D Models</h1>
+      <div className="flex gap-3">
+        <button
+          onClick={handleResetToDefault}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+        >
+          Reset to Default
+        </button>
+        <button
+          onClick={handleAddModel}
+          className="px-4 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors"
+          disabled={!!editingModel}
+        >
+          Add New Model
+        </button>
+      </div>
+    </div>
+    
+    {/* Model Settings Manager */}
+    <ModelSettingsManager />
+    
+    {error && (
+      <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+        {error}
+      </div>
+    )}
+    
+    {editingModel && (
+      <div className="bg-white dark:bg-primary/40 rounded-xl shadow-lg p-6 mb-8">
+        <h2 className="heading-md mb-4">
+          {models.some(model => model.id === editingModel.id) ? 'Edit Model' : 'Add New Model'}
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="name" className="block text-sm font-medium mb-2">
+                Model Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="name"
+                type="text"
+                value={editingModel.name}
+                onChange={(e) => setEditingModel({...editingModel, name: e.target.value})}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                placeholder="e.g., Robot Character"
+              />
+            </div>
+            
+            <div>
+              <label htmlFor="description" className="block text-sm font-medium mb-2">
+                Description
+              </label>
+              <textarea
+                id="description"
+                rows={3}
+                value={editingModel.description}
+                onChange={(e) => setEditingModel({...editingModel, description: e.target.value})}
+                className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                placeholder="Brief description of the model"
+              />
+            </div>
+            <div>
+              <label htmlFor="modelFile" className="block text-sm font-medium mb-2">
+                Upload 3D Model (GLB/GLTF) <span className="text-red-500">*</span>
+              </label>
+              <div className="flex items-center space-x-4 mb-2">
+                {editingModel.modelUrl && (
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    Current model: {editingModel.modelUrl.split('/').pop()}
+                  </div>
+                )}
+                  <input
+                    type="file"
+                    id="modelFileUpload"
+                    accept=".glb,.gltf"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        try {
+                          // Create a FormData object to send the file to the server
+                          const formData = new FormData()
+                          formData.append('file', file)
+                          formData.append('fileType', '3d-model')
+                          
+                          // Show loading notification
+                          setNotification({
+                            type: 'info',
+                            message: 'Uploading model...'
+                          })
+                          
+                          // Upload the file to the server
+                          const response = await fetch('/api/upload', {
+                            method: 'POST',
+                            body: formData
+                          })
+                          
+                          if (!response.ok) {
+                            throw new Error('Failed to upload model')
+                          }
+                          
+                          const result = await response.json()
+                          
+                          // Update the model URL in the form with the path returned from the server
+                          setEditingModel({...editingModel, modelUrl: result.filePath})
+                          
+                          // Show success notification
+                          setNotification({
+                            type: 'success',
+                            message: 'Model uploaded successfully'
+                          })
+                          setTimeout(() => setNotification(null), 3000)
+                        } catch (error) {
+                          console.error('Error uploading model:', error)
+                          setNotification({
+                            type: 'error',
+                            message: 'Failed to upload model'
+                          })
+                          setTimeout(() => setNotification(null), 3000)
+                        }
+                      }
+                    }}
+                  />
+                  <div className="flex space-x-2">
+                    <label 
+                      htmlFor="modelFileUpload"
+                      className="px-3 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors cursor-pointer inline-block"
+                    >
+                      Choose File
+                    </label>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Upload a GLB or GLTF file. The file will be stored locally.
+                </p>
+              </div>
+              
+              <div>
+                <label htmlFor="previewImage" className="block text-sm font-medium mb-2">
+                  Preview Image
+                </label>
+                <div className="flex items-center space-x-4 mb-2">
+                  {editingModel.previewImageUrl && (
+                    <div className="w-24 h-24 border rounded flex items-center justify-center overflow-hidden bg-gray-50 dark:bg-gray-700">
+                      <Image 
+                        src={editingModel.previewImageUrl} 
+                        alt="Preview" 
+                        width={96}
+                        height={96}
+                        className="max-w-full max-h-full object-contain"
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <input
+                      type="file"
+                      id="previewImageUpload"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          const reader = new FileReader()
+                          reader.onload = (event) => {
+                            if (event.target?.result) {
+                              setEditingModel({...editingModel, previewImageUrl: event.target.result as string})
+                            }
+                          }
+                          reader.readAsDataURL(file)
+                        }
+                      }}
+                    />
+                    <div className="flex space-x-2">
+                      <label 
+                        htmlFor="previewImageUpload"
+                        className="px-3 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors cursor-pointer inline-block"
+                      >
+                        Choose File
+                      </label>
+                      {editingModel.previewImageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingModel({...editingModel, previewImageUrl: ''})}
+                          className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-medium mb-3">Position</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="positionX" className="block text-sm font-medium mb-2">
+                      X
+                    </label>
+                    <input
+                      id="positionX"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.position[0]}
+                      onChange={(e) => handlePositionChange('x', e.target.value, 'position')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="positionY" className="block text-sm font-medium mb-2">
+                      Y
+                    </label>
+                    <input
+                      id="positionY"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.position[1]}
+                      onChange={(e) => handlePositionChange('y', e.target.value, 'position')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="positionZ" className="block text-sm font-medium mb-2">
+                      Z
+                    </label>
+                    <input
+                      id="positionZ"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.position[2]}
+                      onChange={(e) => handlePositionChange('z', e.target.value, 'position')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="font-medium mb-3">Rotation (radians)</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="rotationX" className="block text-sm font-medium mb-2">
+                      X
+                    </label>
+                    <input
+                      id="rotationX"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.rotation[0]}
+                      onChange={(e) => handlePositionChange('x', e.target.value, 'rotation')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="rotationY" className="block text-sm font-medium mb-2">
+                      Y
+                    </label>
+                    <input
+                      id="rotationY"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.rotation[1]}
+                      onChange={(e) => handlePositionChange('y', e.target.value, 'rotation')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="rotationZ" className="block text-sm font-medium mb-2">
+                      Z
+                    </label>
+                    <input
+                      id="rotationZ"
+                      type="number"
+                      step="0.1"
+                      value={editingModel.rotation[2]}
+                      onChange={(e) => handlePositionChange('z', e.target.value, 'rotation')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="font-medium mb-3">Scale</h3>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label htmlFor="scaleX" className="block text-sm font-medium mb-2">
+                      X
+                    </label>
+                    <input
+                      id="scaleX"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={editingModel.scale[0]}
+                      onChange={(e) => handlePositionChange('x', e.target.value, 'scale')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="scaleY" className="block text-sm font-medium mb-2">
+                      Y
+                    </label>
+                    <input
+                      id="scaleY"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={editingModel.scale[1]}
+                      onChange={(e) => handlePositionChange('y', e.target.value, 'scale')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="scaleZ" className="block text-sm font-medium mb-2">
+                      Z
+                    </label>
+                    <input
+                      id="scaleZ"
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={editingModel.scale[2]}
+                      onChange={(e) => handlePositionChange('z', e.target.value, 'scale')}
+                      className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-secondary focus:border-secondary dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-end space-x-4 mt-6">
+            <button
+              onClick={handleCancelEdit}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveModel}
+              className="px-4 py-2 bg-secondary text-white rounded-lg hover:bg-secondary/90 transition-colors"
+            >
+              Save Model
+            </button>
+          </div>
+        </div>
+      )}
+      
+      <div className="bg-white dark:bg-primary/40 rounded-xl shadow-lg p-6">
+        <h2 className="heading-md mb-6">Available Models</h2>
+        
+        {models.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            No models found. Add your first 3D model to get started.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {models.map(model => (
+              <div 
+                key={model.id} 
+                className={`border rounded-lg overflow-hidden ${
+                  model.isActive 
+                    ? 'border-secondary ring-2 ring-secondary/30' 
+                    : 'border-gray-200 dark:border-gray-700'
+                }`}
+              >
+                <div className="aspect-video bg-gray-100 dark:bg-gray-800 relative">
+                  {model.previewImageUrl ? (
+                    <Image 
+                      src={model.previewImageUrl} 
+                      alt={model.name} 
+                      width={300}
+                      height={200}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                      </svg>
+                    </div>
+                  )}
+                  
+                  {model.isActive && (
+                    <div className="absolute top-2 left-2 bg-secondary text-white text-xs px-2 py-1 rounded">
+                      Active
+                    </div>
+                  )}
+                </div>
+                
+                <div className="p-4">
+                  <h3 className="font-display font-bold text-lg">{model.name}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-2">
+                    {model.description || 'No description provided'}
+                  </p>
+                  
+                  <div className="flex justify-between items-center">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleEditModel(model)}
+                        className="p-2 text-gray-500 hover:text-secondary"
+                        aria-label="Edit"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteModel(model.id)}
+                        className="p-2 text-gray-500 hover:text-red-500"
+                        aria-label="Delete"
+                        disabled={models.length === 1 && model.isActive}
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    {!model.isActive && (
+                      <button
+                        onClick={() => handleSetActive(model.id)}
+                        className="px-3 py-1 text-sm bg-secondary/10 text-secondary rounded hover:bg-secondary/20 transition-colors"
+                      >
+                        Set as Active
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div className="mt-6 text-sm text-gray-500">
+          <p>Note: Changes are saved to the browser for demo purposes. In a production environment, these would be saved to a database.</p>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,81 @@
+/* Import Material Icons */
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #0A0A0A;
+  --secondary: #6C63FF;
+  --accent: #00F5A0;
+  --background: #FAFAFA;
+  --text: #232323;
+}
+
+.dark {
+  --primary: #0A0A0A;
+  --secondary: #6C63FF;
+  --accent: #00F5A0;
+  --background: #0A0A0A;
+  --text: #FAFAFA;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-text transition-colors duration-300;
+  }
+}
+
+@layer components {
+  .container-custom {
+    @apply container mx-auto px-6 sm:px-10 lg:px-16 max-w-7xl;
+  }
+  
+  .heading-xl {
+    @apply font-display text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight;
+  }
+  
+  .heading-lg {
+    @apply font-display text-3xl md:text-4xl font-bold tracking-tight;
+  }
+  
+  .heading-md {
+    @apply font-display text-2xl md:text-3xl font-bold;
+  }
+  
+  .body-lg {
+    @apply font-body text-lg leading-relaxed;
+  }
+  
+  .body-md {
+    @apply font-body text-base leading-relaxed;
+  }
+  
+  .mono {
+    @apply font-mono text-sm tracking-tight;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: theme('colors.secondary');
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: theme('colors.accent');
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
